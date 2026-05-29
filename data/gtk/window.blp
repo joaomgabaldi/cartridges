@@ -62,7 +62,6 @@ template $CartridgesWindow: Adw.ApplicationWindow {
       details_view_title.margin-top: 30;
       details_view_title.halign: center;
       details_view_developer.halign: center;
-      details_view_publisher.halign: center;
       details_view_date_box.halign: center;
       details_view_toolbar.halign: center;
       details_view_toolbar.orientation: vertical;
@@ -396,20 +395,6 @@ Adw.NavigationPage details_page {
                 "heading",
               ]
             }
-            
-            Label details_view_publisher {
-              margin-top: 6;
-              hexpand: true;
-              halign: start;
-              max-width-chars: 36;
-              wrap: true;
-              wrap-mode: word_char;
-              natural-wrap-mode: word;
-
-              styles [
-                "heading",
-              ]
-            }
 
             Box details_view_date_box {
               orientation: horizontal;
@@ -417,15 +402,7 @@ Adw.NavigationPage details_page {
               hexpand: true;
               halign: start;
 
-              Label details_view_release_year {
-                wrap: true;
-                wrap-mode: word_char;
-                natural-wrap-mode: word;
-                justify: center;
-              }
-
               Label details_view_added {
-                margin-start: 12;
                 wrap: true;
                 wrap-mode: word_char;
                 natural-wrap-mode: word;
@@ -576,7 +553,7 @@ menu primary_menu {
 menu add_games {
   section {
     item (_("Add Game"), "app.add_game")
-    item (_("Importar Atalhos..."), "win.import_shortcuts")
+    item (_("Importar Atalhos..."), "win.import_shortcuts")  // <-- ADICIONE ESTA LINHA
   }
 
   section {
