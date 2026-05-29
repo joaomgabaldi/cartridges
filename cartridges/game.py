@@ -14,15 +14,22 @@ from pathlib import Path
 from sys import platform
 from typing import Any, Optional
 
-from gi.repository import Gio, GLib
+from gi.repository import Gio, GLib, GObject
 
 from cartridges import shared
 from cartridges.game_cover import GameCover
 from cartridges.utils.run_executable import run_executable
 
 
-class Game(GLib.Object):
+class Game(GObject.Object):
     """Game object"""
+
+    __gsignals__ = {
+        "save-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "fetch-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "display-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "update-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
 
     def __init__(self, data: dict):
         super().__init__()
@@ -36,6 +43,7 @@ class Game(GLib.Object):
         self.source = data.get("source", "")
         self.hidden = data.get("hidden", False)
         self.last_played = data.get("last_played", 0)
+        self.version = data.get("version", shared.SPEC_VERSION)
 
         # Only present in legacy state
         self.steam_id = data.get("steam_id")
@@ -171,7 +179,7 @@ class Game(GLib.Object):
         shared.store.save_game(self)
 
     def update(self) -> None:
-        pass
+        self.emit("update-ready")
 
     def set_loading(self, increment: int) -> None:
         self.loading += increment
