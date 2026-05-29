@@ -1,3 +1,4 @@
+# window.py
 #
 # Copyright 2022-2023 kramo
 #
@@ -60,11 +61,7 @@ class CartridgesWindow(Adw.ApplicationWindow):
     details_view_title: Gtk.Label = Gtk.Template.Child()
     details_view_blurred_cover: Gtk.Picture = Gtk.Template.Child()
     details_view_play_button: Gtk.Button = Gtk.Template.Child()
-    
     details_view_developer: Gtk.Label = Gtk.Template.Child()
-    details_view_publisher: Gtk.Label = Gtk.Template.Child()
-    details_view_release_year: Gtk.Label = Gtk.Template.Child()
-    
     details_view_added: Gtk.ShortcutLabel = Gtk.Template.Child()
     details_view_last_played: Gtk.Label = Gtk.Template.Child()
     details_view_hide_button: Gtk.Button = Gtk.Template.Child()
@@ -225,10 +222,12 @@ class CartridgesWindow(Adw.ApplicationWindow):
         self.details_view.set_measure_overlay(self.details_view_toolbar_view, True)
         self.details_view.set_clip_overlay(self.details_view_toolbar_view, False)
 
+        # MVC ListModel Setup
         self.game_store = Gio.ListStore.new(Game)
 
         self.sorter = Gtk.CustomSorter.new(self.sort_func)
 
+        # Main Library Pipeline
         self.library_filter = Gtk.CustomFilter.new(self.filter_func_main)
         self.library_filter_model = Gtk.FilterListModel.new(self.game_store, self.library_filter)
         self.library_sort_model = Gtk.SortListModel.new(self.library_filter_model, self.sorter)
@@ -240,6 +239,7 @@ class CartridgesWindow(Adw.ApplicationWindow):
         factory.connect("bind", self.bind_library_item)
         self.library.set_factory(factory)
 
+        # Hidden Library Pipeline
         self.hidden_library_filter = Gtk.CustomFilter.new(self.filter_func_hidden)
         self.hidden_filter_model = Gtk.FilterListModel.new(self.game_store, self.hidden_library_filter)
         self.hidden_sort_model = Gtk.SortListModel.new(self.hidden_filter_model, self.sorter)
@@ -300,6 +300,7 @@ class CartridgesWindow(Adw.ApplicationWindow):
             self.library.set_max_columns(10)
             self.hidden_library.set_max_columns(10)
 
+        # Batch import action
         import_shortcuts_action = Gio.SimpleAction.new("import_shortcuts", None)
         import_shortcuts_action.connect("activate", self.on_import_shortcuts_action)
         self.add_action(import_shortcuts_action)
@@ -434,13 +435,6 @@ class CartridgesWindow(Adw.ApplicationWindow):
 
         self.details_view_developer.set_label(game.developer or "")
         self.details_view_developer.set_visible(bool(game.developer))
-
-        self.details_view_publisher.set_label(getattr(game, 'publisher', None) or "")
-        self.details_view_publisher.set_visible(bool(getattr(game, 'publisher', None)))
-
-        year = getattr(game, 'release_year', None)
-        self.details_view_release_year.set_label(str(year) if year else "")
-        self.details_view_release_year.set_visible(bool(year))
 
         icon, text = "view-conceal-symbolic", _("Hide")
         if game.hidden:
