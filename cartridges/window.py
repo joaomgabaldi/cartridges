@@ -19,6 +19,11 @@ from cartridges.game import Game
 from cartridges.game_cover import GameCover
 from cartridges.utils.relative_date import relative_date
 from gi.repository import Adw, Gio, GLib, Gtk, Pango, GObject
+import shlex
+import shutil
+import threading
+from time import time
+from pathlib import Path
 
 
 @Gtk.Template(resource_path=shared.PREFIX + "/gtk/window.ui")
