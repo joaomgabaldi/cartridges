@@ -1,21 +1,17 @@
 using Gtk 4.0;
 using Adw 1;
 
-template $DetailsDialog: Adw.Window {
-  title: _("Game Details");
-  modal: true;
-  hide-on-close: true;
-  width-request: 450;
-  height-request: 500;
+template $DetailsDialog: Adw.Dialog {
+  content-width: 480;
 
-  content: Adw.ToolbarView {
+  Adw.ToolbarView {
     [top]
-    Adw.HeaderBar {
+    Adw.HeaderBar HeaderBar {
       show-start-title-buttons: false;
       show-end-title-buttons: false;
 
       [start]
-      Button {
+      Button cancel_button {
         label: _("Cancel");
         action-name: "window.close";
       }
@@ -23,126 +19,127 @@ template $DetailsDialog: Adw.Window {
       [end]
       Button apply_button {
         styles [
-          "suggested-action",
+          "suggested-action"
         ]
       }
     }
 
-    ScrolledWindow {
-      Adw.Clamp {
-        maximum-size: 400;
+    Adw.PreferencesPage {
+      Adw.PreferencesGroup cover_group {
+        Adw.Clamp cover_clamp {
+          maximum-size: 200;
 
-        Box {
-          orientation: vertical;
-          margin-top: 24;
-          margin-bottom: 24;
-          margin-start: 12;
-          margin-end: 12;
-
-          Adw.Clamp {
-            maximum-size: 200;
+          Overlay {
+            [overlay]
+            Adw.Spinner spinner {
+              visible: false;
+            }
 
             Overlay cover_overlay {
-              [overlay]
-              Adw.Spinner spinner {
-                visible: false;
-              }
+              halign: center;
+              valign: center;
 
-              Picture cover {
+              [overlay]
+              Button cover_button_edit {
+                icon-name: "document-edit-symbolic";
+                tooltip-text: _("New Cover");
                 halign: end;
-                valign: start;
-                width-request: 200;
-                height-request: 300;
-                margin-bottom: 24;
+                valign: end;
+                margin-bottom: 6;
+                margin-end: 6;
 
                 styles [
-                  "card",
+                  "circular",
+                  "osd"
                 ]
               }
 
               [overlay]
-              Box {
-                halign: center;
-                valign: center;
+              Revealer cover_button_delete_revealer {
+                transition-type: crossfade;
+                margin-end: 40;
 
-                Button cover_button_edit {
-                  icon-name: "document-edit-symbolic";
+                Button cover_button_delete {
+                  icon-name: "user-trash-symbolic";
+                  tooltip-text: _("Delete Cover");
+                  halign: end;
+                  valign: end;
+                  margin-bottom: 6;
+                  margin-end: 6;
 
                   styles [
                     "circular",
-                    "osd",
+                    "osd"
                   ]
                 }
-
-                Revealer cover_button_delete_revealer {
-                  transition-type: slide_left;
-
-                  Button cover_button_delete {
-                    icon-name: "user-trash-symbolic";
-                    margin-start: 12;
-
-                    styles [
-                      "circular",
-                      "osd",
-                    ]
-                  }
-                }
-              }
-            }
-          }
-
-          Adw.PreferencesGroup {
-            Adw.EntryRow name {
-              title: _("Title");
-            }
-
-            Adw.EntryRow developer {
-              title: _("Developer");
-            }
-
-            Adw.EntryRow publisher {
-              title: _("Publisher");
-            }
-
-            Adw.EntryRow release_year {
-              title: _("Release Year");
-            }
-
-            Adw.EntryRow executable {
-              title: _("Executable");
-
-              [suffix]
-              MenuButton {
-                valign: center;
-                icon-name: "dialog-information-symbolic";
-
-                popover: Popover exec_info_popover {
-                  Label exec_info_label {
-                    wrap: true;
-                    max-width-chars: 32;
-                    use-markup: true;
-                  }
-                };
-
-                styles [
-                  "flat",
-                ]
               }
 
-              [suffix]
-              Button file_chooser_button {
-                valign: center;
-                icon-name: "folder-open-symbolic";
-                tooltip-text: _("Choose Executable");
+              Picture cover {
+                width-request: 200;
+                height-request: 300;
 
                 styles [
-                  "flat",
+                  "card"
                 ]
               }
             }
           }
         }
       }
+
+      Adw.PreferencesGroup {
+        Adw.EntryRow name {
+          title: _("Title");
+        }
+
+        Adw.EntryRow developer {
+          title: _("Developer (optional)");
+        }
+      }
+
+      Adw.PreferencesGroup {
+        Adw.EntryRow executable {
+          title: _("Executable");
+
+          [suffix]
+          Button file_chooser_button {
+            valign: center;
+            icon-name: "document-open-symbolic";
+            tooltip-text: _("Select File");
+
+            styles [
+              "flat",
+            ]
+          }
+
+          [suffix]
+          MenuButton exec_info_button {
+            valign: center;
+            icon-name: "help-about-symbolic";
+            tooltip-text: _("More Info");
+
+            popover: Popover exec_info_popover {
+              focusable: true;
+
+              Label exec_info_label {
+                use-markup: true;
+                wrap: true;
+                max-width-chars: 50;
+                halign: center;
+                valign: center;
+                margin-top: 6;
+                margin-bottom: 6;
+                margin-start: 6;
+                margin-end: 6;
+              }
+            };
+
+            styles [
+              "flat"
+            ]
+          }
+        }
+      }
     }
-  };
+  }
 }
