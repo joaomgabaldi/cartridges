@@ -235,17 +235,15 @@ template $CartridgesWindow: Adw.ApplicationWindow {
 
             Overlay library_overlay {
               ScrolledWindow scrolledwindow {
-                FlowBox library {
-                  homogeneous: true;
+                GridView library {
                   halign: center;
                   valign: start;
-                  column-spacing: 12;
-                  row-spacing: 12;
+                  single-click-activate: true;
+                  enable-rubberband: false;
                   margin-top: 15;
                   margin-bottom: 15;
                   margin-start: 15;
                   margin-end: 15;
-                  selection-mode: none;
 
                   styles [
                     "no-hover",
@@ -299,17 +297,15 @@ Adw.NavigationPage hidden_library_page {
 
     Overlay hidden_library_overlay {
       ScrolledWindow hidden_scrolledwindow {
-        FlowBox hidden_library {
-          homogeneous: true;
+        GridView hidden_library {
           halign: center;
           valign: start;
-          column-spacing: 12;
-          row-spacing: 12;
+          single-click-activate: true;
+          enable-rubberband: false;
           margin-top: 15;
           margin-bottom: 15;
           margin-start: 15;
           margin-end: 15;
-          selection-mode: none;
 
           styles [
             "no-hover",
@@ -567,6 +563,7 @@ menu add_games {
 menu search {
   section {
     label: _("Search on…");
+
     item (_("IGDB"), "app.igdb_search")
     item (_("SteamGridDB"), "app.sgdb_search")
     item (_("ProtonDB"), "app.protondb_search")
