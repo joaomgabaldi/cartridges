@@ -14,15 +14,17 @@ from pathlib import Path
 from sys import platform
 from typing import Any, Optional
 
-from gi.repository import Gio, GLib, GObject
+from gi.repository import Gio, GLib, GObject, Gtk
 
 from cartridges import shared
 from cartridges.game_cover import GameCover
 from cartridges.utils.run_executable import run_executable
 
-
-class Game(GObject.Object):
+@Gtk.Template(resource_path=shared.PREFIX + "/gtk/game.ui")
+class Game(Gtk.Box):
     """Game object"""
+
+    __gtype_name__ = "Game"
 
     __gsignals__ = {
         "save-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -31,8 +33,19 @@ class Game(GObject.Object):
         "update-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
+    # Mapeamento exato dos filhos declarados no game.blp
+    menu_button: Gtk.MenuButton = Gtk.Template.Child()
+    menu_revealer: Gtk.Revealer = Gtk.Template.Child()
+    play_revealer: Gtk.Revealer = Gtk.Template.Child()
+    cover: Gtk.Picture = Gtk.Template.Child()
+    spinner: Gtk.Spinner = Gtk.Template.Child()
+    title: Gtk.Label = Gtk.Template.Child()
+    play_button: Gtk.Button = Gtk.Template.Child()
+    cover_button: Gtk.Button = Gtk.Template.Child()
+
     def __init__(self, data: dict):
         super().__init__()
+
         self.game_id = data.get("game_id", "")
         self.name = data.get("name", "")
         self.developer = data.get("developer")
@@ -43,10 +56,11 @@ class Game(GObject.Object):
         self.source = data.get("source", "")
         self.hidden = data.get("hidden", False)
         self.last_played = data.get("last_played", 0)
-        self.version = data.get("version", shared.SPEC_VERSION)
 
         # Only present in legacy state
         self.steam_id = data.get("steam_id")
+
+        self.version = data.get("version", shared.SPEC_VERSION)
 
         self.removed = False
         self.blacklisted = False
@@ -54,7 +68,23 @@ class Game(GObject.Object):
         self.loading = 0
 
         self.game_cover: Optional[GameCover] = None
+
         self.base_source = self.source.split("_")[0]
+        self.title.set_label(self.name)
+
+        # Ligar os botões às respetivas ações
+        self.play_button.connect("clicked", self.launch)
+        self.cover_button.connect("clicked", lambda *_: shared.win.show_details_page(self))
+        
+        # Ligar os menús
+        if self.menu_button.get_popover():
+            self.menu_button.get_popover().connect("notify::visible", self.toggle_play)
+
+        # Restaurar o controlador de eventos (para quando o utilizador passar o cursor)
+        motion_controller = Gtk.EventControllerMotion.new()
+        motion_controller.connect("enter", self.toggle_play)
+        motion_controller.connect("leave", self.toggle_play)
+        self.cover_button.add_controller(motion_controller)
 
     def get_cover_path(self) -> Path:
         base_path = shared.covers_dir / self.game_id
@@ -154,7 +184,7 @@ class Game(GObject.Object):
             ),
         )
 
-    def launch(self) -> None:
+    def launch(self, *_args: Any) -> None:
         shared.win.get_application().send_notification(
             "launch",
             # Translators: {} is the game's title
@@ -172,14 +202,41 @@ class Game(GObject.Object):
             ),
         )
 
-    def toggle_play(self, _widget: Any, _pspec: Any, action: Any) -> None:
-        pass
+    def toggle_play(self, widget: Any, _pspec: Any = None) -> None:
+        show = False
+        
+        if isinstance(widget, Gtk.EventControllerMotion):
+            show = widget.contains_pointer()
+        
+        popover = self.menu_button.get_popover()
+        if popover and popover.get_visible():
+            show = True
+
+        self.play_revealer.set_reveal_child(show)
+        self.menu_revealer.set_reveal_child(show)
 
     def save(self) -> None:
         shared.store.save_game(self)
 
     def update(self) -> None:
         self.emit("update-ready")
+        
+        if self.game_id in shared.win.game_covers:
+            if not self.game_cover:
+                self.game_cover = shared.win.game_covers[self.game_id]
+                self.game_cover.add_picture(self.cover)
+
+            self.cover.set_opacity(int(not self.loading))
+
+            if self.loading:
+                self.spinner.start()
+            else:
+                self.spinner.stop()
+
+        self.title.set_label(self.name)
+
+        if hasattr(shared, 'win') and shared.win and getattr(shared.win, 'active_game', None) == self:
+            shared.win.show_details_page(self)
 
     def set_loading(self, increment: int) -> None:
         self.loading += increment
