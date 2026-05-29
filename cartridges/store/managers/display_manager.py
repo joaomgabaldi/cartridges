@@ -1,44 +1,83 @@
+# display_manager.py
 #
-# Copyright 2022-2023 kramo
+# Copyright 2023 Geoffrey Coulaud
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# pyright: reportAssignmentType=none
-
-from gi.repository import Gio, GLib
-
+from gi.repository import Gtk
 from cartridges import shared
 from cartridges.game import Game
+from cartridges.game_cover import GameCover
 from cartridges.store.managers.manager import Manager
 from cartridges.store.managers.sgdb_manager import SgdbManager
+from cartridges.store.managers.steam_api_manager import SteamAPIManager
 
 
 class DisplayManager(Manager):
     """Manager in charge of adding a game to the UI"""
 
-    run_after = (SgdbManager,)
+    run_after = (SteamAPIManager, SgdbManager)
+    signals = {"update-ready"}
 
     def main(self, game: Game, _additional_data: dict) -> None:
-        if getattr(game, 'removed', False):
-            return
+        # 1. Removido o bloco antigo de "game.get_parent()" do FlowBox
+        
+        game.menu_button.set_menu_model(
+            game.hidden_game_options if game.hidden else game.game_options
+        )
 
-        def update_ui() -> None:
-            game.menu_button.set_menu_model(
-                shared.win.lookup_action("show_hidden").get_enabled()
-                and shared.win.hidden_primary_menu_button.get_menu_model()
-                or shared.win.primary_menu_button.get_menu_model()
-            )
+        game.title.set_label(game.name)
 
-            if game not in shared.win.game_store:
+        game.menu_button.get_popover().connect(
+            "notify::visible", game.toggle_play, None
+        )
+        game.menu_button.get_popover().connect(
+            "notify::visible", shared.win.set_active_game, game
+        )
+
+        if game.game_id in shared.win.game_covers:
+            game.game_cover = shared.win.game_covers[game.game_id]
+            game.game_cover.add_picture(game.cover)
+        else:
+            game.game_cover = GameCover({game.cover}, game.get_cover_path())
+            shared.win.game_covers[game.game_id] = game.game_cover
+
+        if (
+            shared.win.navigation_view.get_visible_page() == shared.win.details_page
+            and shared.win.active_game == game
+        ):
+            shared.win.show_details_page(game)
+
+        # 2. A nova Integração MVC
+        if not game.removed and not game.blacklisted:
+            # Verifica se o jogo já está no ListStore para não duplicar em atualizações
+            is_new = True
+            for i in range(shared.win.game_store.get_n_items()):
+                if shared.win.game_store.get_item(i).game_id == game.game_id:
+                    is_new = False
+                    break
+            
+            if is_new:
+                # Se for um jogo novo sendo lido, injeta na ListStore através do Window
                 shared.win.add_game_to_ui(game)
+            else:
+                # Se for só uma atualização de estado (ex: ocultou o jogo), avisa os filtros
+                shared.win.library_filter.changed(Gtk.FilterChange.DIFFERENT)
+                shared.win.hidden_library_filter.changed(Gtk.FilterChange.DIFFERENT)
+                shared.win.set_library_child()
 
-            shared.win.library_filter.changed(2)
-            shared.win.hidden_library_filter.changed(2)
-            shared.win.sorter.changed(1)
-
-        GLib.idle_add(update_ui)
+        if shared.win.get_application().state == shared.AppState.DEFAULT:
+            shared.win.create_source_rows()
