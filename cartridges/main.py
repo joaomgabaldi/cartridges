@@ -21,12 +21,15 @@ import json
 import lzma
 import shlex
 import sys
+import threading
+import traceback
+import logging
 from time import time
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
-from cartridges.utils.sqlite import init_db, migrate_legacy_json, get_conn
+
 import gi
-import threading
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -41,7 +44,7 @@ from cartridges.importer.bottles_source import BottlesSource
 from cartridges.importer.desktop_source import DesktopSource
 from cartridges.importer.flatpak_source import FlatpakSource
 from cartridges.importer.heroic_source import HeroicSource
-from cartridges.importer.importer import Importer  # yo dawg
+from cartridges.importer.importer import Importer
 from cartridges.importer.itch_source import ItchSource
 from cartridges.importer.legendary_source import LegendarySource
 from cartridges.importer.lutris_source import LutrisSource
@@ -57,26 +60,16 @@ from cartridges.store.managers.steam_api_manager import SteamAPIManager
 from cartridges.store.store import Store
 from cartridges.utils.run_executable import run_executable
 from cartridges.window import CartridgesWindow
-import sys
-import traceback
-import logging
-from pathlib import Path
+from cartridges.utils.sqlite import init_db, migrate_legacy_json, get_conn
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
-    # Ignora interrupções de teclado (Ctrl+C)
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
 
-    # Formata o rastreamento do erro completo
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    
-    # 1. Tenta gravar no sistema de logs padrão da aplicação
     logging.critical(f"CRASH FATAL:\n{error_msg}")
     
-    # 2. Sistema de contingência (Failsafe): Grava na raiz do diretório de utilizador
-    # Isso garante que mesmo que o sistema de logs do GTK falhe ou não tenha permissão,
-    # você saberá exatamente o que causou o crash.
     try:
         crash_file = Path.home() / "cartridges_crash.log"
         with open(crash_file, "w", encoding="utf-8") as f:
@@ -85,12 +78,9 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
     except Exception:
         pass
         
-    # Executa o encerramento padrão
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
-# Sobrescreve o manipulador padrão do Python
 sys.excepthook = global_exception_handler
-
 
 class CartridgesApplication(Adw.Application):
     state = shared.AppState.DEFAULT
@@ -125,7 +115,7 @@ class CartridgesApplication(Adw.Application):
             if settings := Gtk.Settings.get_default():
                 settings.props.gtk_decoration_layout = "close,minimize,maximize:"
 
-    def do_activate(self) -> None:  # pylint: disable=arguments-differ
+    def do_activate(self) -> None:
         """Called on app creation"""
         try:
             setup_logging()
@@ -134,28 +124,20 @@ class CartridgesApplication(Adw.Application):
 
         log_system_info()
 
-        # Create the main window
-        win = self.props.active_window  # pylint: disable=no-member
+        win = self.props.active_window
         if not win:
             shared.win = win = CartridgesWindow(application=self)
 
-        # Save window geometry
-        shared.state_schema.bind(
-            "width", shared.win, "default-width", Gio.SettingsBindFlags.DEFAULT
-        )
-        shared.state_schema.bind(
-            "height", shared.win, "default-height", Gio.SettingsBindFlags.DEFAULT
-        )
-        shared.state_schema.bind(
-            "is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT
-        )
+        shared.state_schema.bind("width", shared.win, "default-width", Gio.SettingsBindFlags.DEFAULT)
+        shared.state_schema.bind("height", shared.win, "default-height", Gio.SettingsBindFlags.DEFAULT)
+        shared.state_schema.bind("is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT)
 
         # 1. INICIALIZA E MIGRA O DB
         conn = init_db()
         migrate_legacy_json(conn)
         conn.close()
 
-        # 2. MOSTRAR A JANELA IMEDIATAMENTE (Isto é o que resolve o delay visual)
+        # 2. MOSTRAR A JANELA IMEDIATAMENTE
         shared.win.present()
 
         # 3. Preparar e iniciar a leitura em background
@@ -163,19 +145,6 @@ class CartridgesApplication(Adw.Application):
         shared.store.add_manager(DisplayManager())
         self.state = shared.AppState.LOAD_FROM_DISK
         self.load_games_from_disk()
-
-        # INICIALIZA E MIGRA O DB AQUI (ANTES DE LER OS JOGOS)
-        conn = init_db()
-        migrate_legacy_json(conn)
-        conn.close()
-
-        # Load games from disk
-        shared.store.add_manager(FileManager(), False)
-        shared.store.add_manager(DisplayManager())
-        self.state = shared.AppState.LOAD_FROM_DISK
-        self.load_games_from_disk()
-        self.state = shared.AppState.DEFAULT
-        shared.win.create_source_rows()
 
         # Add rest of the managers for game imports
         shared.store.add_manager(CoverManager())
@@ -222,13 +191,6 @@ class CartridgesApplication(Adw.Application):
         shared.win.add_action(sort_action)
         shared.win.on_sort_action(sort_action, sort_mode)
 
-        if self.init_search_term:  # For command line activation
-            shared.win.search_bar.set_search_mode(True)
-            shared.win.search_entry.set_text(self.init_search_term)
-            shared.win.search_entry.set_position(-1)
-
-        shared.win.present()
-
         if shared.schema.get_boolean("auto-import"):
             self.on_import_action()
 
@@ -268,7 +230,6 @@ class CartridgesApplication(Adw.Application):
 
     def load_games_from_disk(self) -> None:
         def fetch_data() -> None:
-            """Executa fora da Thread Principal: Apenas I/O do SQLite"""
             games_data = []
             try:
                 with get_conn() as conn:
@@ -282,32 +243,24 @@ class CartridgesApplication(Adw.Application):
             except Exception as e:
                 print(f"Erro ao carregar do SQLite: {e}")
             
-            # Devolve os dados extraídos para a Thread Principal processar o UI
             GLib.idle_add(build_ui, games_data)
 
         def build_ui(games_data: list) -> bool:
-            """Executa na Thread Principal: Seguro para o GTK"""
             for data in games_data:
                 game = Game(data)
                 shared.store.add_game(game, {"skip_save": True})
 
-            # As etapas finais do boot original que aguardavam a leitura do disco
             self.state = shared.AppState.DEFAULT
             shared.win.create_source_rows()
 
             if getattr(self, "init_search_term", None):
-                shared.win.search_entry.set_text(self.init_search_term)
                 shared.win.search_bar.set_search_mode(True)
+                shared.win.search_entry.set_text(self.init_search_term)
+                shared.win.search_entry.set_position(-1)
                 self.init_search_term = None
 
-            self.check_importers()
-            shared.store.start_managers()
-            self.download_covers()
-            
-            # GLib.SOURCE_REMOVE (False) indica para não repetir a chamada
             return False
 
-        # Dispara a função na sub-thread
         threading.Thread(target=fetch_data, daemon=True).start()
 
     def get_source_name(self, source_id: str) -> Any:
@@ -323,13 +276,10 @@ class CartridgesApplication(Adw.Application):
         return name
 
     def on_about_action(self, *_args: Any) -> None:
-        # Get the debug info from the log files
         debug_str = ""
         for index, path in enumerate(shared.log_files):
-            # Add a horizontal line between runs
             if index > 0:
                 debug_str += "─" * 37 + "\n"
-            # Add the run's logs
             log_file = (
                 lzma.open(path, "rt", encoding="utf-8")
                 if path.name.endswith(".xz")
@@ -356,7 +306,6 @@ class CartridgesApplication(Adw.Application):
         )
         about.set_designers(("kramo https://kramo.page",))
         about.set_copyright("© 2022-2024 kramo")
-        # Translators: Replace this with Your Name, Your Name <your.email@example.com>, or Your Name https://your-site.com for it to show up in the About dialog.
         about.set_translator_credits(_("translator-credits"))
         about.set_debug_info(debug_str)
         about.set_debug_info_filename("cartridges.log")
@@ -364,7 +313,7 @@ class CartridgesApplication(Adw.Application):
             "Steam Branding",
             "© 2023 Valve Corporation",
             Gtk.License.CUSTOM,
-            "Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation in the U.S. and/or other countries.",  # pylint: disable=line-too-long
+            "Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation in the U.S. and/or other countries.",
         )
         about.present(shared.win)
 
@@ -376,7 +325,7 @@ class CartridgesApplication(Adw.Application):
         expander_row: Optional[str] = None,
     ) -> Optional[CartridgesPreferences]:
         if CartridgesPreferences.is_open:
-            return
+            return None
 
         win = CartridgesPreferences()
         if page_name:
