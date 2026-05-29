@@ -24,7 +24,7 @@ import sys
 from time import time
 from typing import Any, Optional
 from urllib.parse import quote
-
+from cartridges.utils.sqlite import init_db, migrate_legacy_json, get_conn
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -116,6 +116,11 @@ class CartridgesApplication(Adw.Application):
             "is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT
         )
 
+        # INICIALIZA E MIGRA O DB AQUI (ANTES DE LER OS JOGOS)
+        conn = init_db()
+        migrate_legacy_json(conn)
+        conn.close()
+
         # Load games from disk
         shared.store.add_manager(FileManager(), False)
         shared.store.add_manager(DisplayManager())
@@ -183,25 +188,22 @@ class CartridgesApplication(Adw.Application):
         if search := options.lookup_value("search"):
             self.init_search_term = search.get_string()
         elif game_id := options.lookup_value("launch"):
+            game_id_str = game_id.get_string()
             try:
-                data = json.load(
-                    (path := shared.games_dir / (game_id.get_string() + ".json")).open(
-                        "r", encoding="utf-8"
-                    )
-                )
-                executable = (
-                    shlex.join(data["executable"])
-                    if isinstance(data["executable"], list)
-                    else data["executable"]
-                )
-                name = data["name"]
+                with get_conn() as conn:
+                    row = conn.execute("SELECT * FROM games WHERE game_id = ?", (game_id_str,)).fetchone()
+                    if not row:
+                        return 1
+                    
+                    executable = row["executable"]
+                    name = row["name"]
+                    
+                    run_executable(executable)
 
-                run_executable(executable)
-
-                data["last_played"] = int(time())
-                json.dump(data, path.open("w", encoding="utf-8"))
-
-            except (IndexError, KeyError, OSError, json.decoder.JSONDecodeError):
+                    # Update last played
+                    conn.execute("UPDATE games SET last_played = ? WHERE game_id = ?", (int(time()), game_id_str))
+                    
+            except Exception:
                 return 1
 
             self.register()
@@ -210,7 +212,6 @@ class CartridgesApplication(Adw.Application):
             )
 
             # Sleep for 6 seconds before withdrawing the notification
-            # The amount a notification stays up is ~5, so leave an extra second for the animation
             GLib.usleep(6000000)
             self.withdraw_notification("launch")
 
@@ -218,14 +219,20 @@ class CartridgesApplication(Adw.Application):
         return -1
 
     def load_games_from_disk(self) -> None:
-        if shared.games_dir.is_dir():
-            for game_file in shared.games_dir.iterdir():
-                try:
-                    data = json.load(game_file.open())
-                except (OSError, json.decoder.JSONDecodeError):
-                    continue
-                game = Game(data)
-                shared.store.add_game(game, {"skip_save": True})
+        try:
+            with get_conn() as conn:
+                cursor = conn.execute("SELECT * FROM games")
+                for row in cursor:
+                    data = dict(row)
+                    # Força a tipagem booleana
+                    data['hidden'] = bool(data['hidden'])
+                    data['removed'] = bool(data['removed'])
+                    data['blacklisted'] = bool(data['blacklisted'])
+                    
+                    game = Game(data)
+                    shared.store.add_game(game, {"skip_save": True})
+        except Exception as e:
+            print(f"Erro ao carregar do SQLite: {e}")
 
     def get_source_name(self, source_id: str) -> Any:
         if source_id == "all":
