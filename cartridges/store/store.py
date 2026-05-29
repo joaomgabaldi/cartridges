@@ -19,7 +19,7 @@
 
 import logging
 from typing import Any, Generator, MutableMapping, Optional
-
+from cartridges.utils.sqlite import get_conn
 from cartridges import shared
 from cartridges.game import Game
 from cartridges.store.managers.manager import Manager
@@ -93,7 +93,16 @@ class Store:
             self.pipeline_managers.discard(self.managers[manager_type])
 
     def cleanup_game(self, game: Game) -> None:
-        """Remove a game's files, dismiss any loose toasts"""
+        """Remove a game's db entry, cover files, dismiss any loose toasts"""
+        
+        # Deletar do banco de dados
+        try:
+            with get_conn() as conn:
+                conn.execute("DELETE FROM games WHERE game_id = ?", (game.game_id,))
+        except Exception as e:
+            logging.error("Failed to delete game %s from db: %s", game.game_id, e)
+
+        # Deletar capas e, por garantia, limpar json velho se sobrou
         for path in (
             shared.games_dir / f"{game.game_id}.json",
             shared.covers_dir / f"{game.game_id}.tiff",
