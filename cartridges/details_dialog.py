@@ -20,6 +20,7 @@
 # pyright: reportAssignmentType=none
 
 import shlex
+import shutil
 from pathlib import Path
 from sys import platform
 from time import time
@@ -236,6 +237,20 @@ class DetailsDialog(Adw.Dialog):
 
         self.game.name = final_name
         self.game.developer = final_developer or None
+
+        cleaned_executable = final_executable.strip(' "\'')
+        if platform == "win32" and cleaned_executable.lower().endswith(".lnk"):
+            lnk_path = Path(cleaned_executable)
+            if lnk_path.is_file():
+                links_dir = shared.games_dir.parent / "links"
+                links_dir.mkdir(parents=True, exist_ok=True)
+                internal_lnk = links_dir / f"{self.game.game_id}.lnk"
+                
+                if lnk_path.resolve() != internal_lnk.resolve():
+                    shutil.copy2(lnk_path, internal_lnk)
+                    
+                final_executable = f'start "" "{internal_lnk}"'
+
         self.game.executable = final_executable
 
         if self.game.game_id in shared.win.game_covers.keys():
@@ -347,8 +362,7 @@ class DetailsDialog(Adw.Dialog):
                 pass
 
         if path.lower().endswith(".lnk"):
-            command = f'start "" "{path}"' if platform == "win32" else f'xdg-open "{path}"'
-            self.executable.set_text(command)
+            self.executable.set_text(path)
             return
 
         self.executable.set_text(shlex.quote(path))
