@@ -25,9 +25,6 @@ class SteamAPIManager(AsyncManager):
     retryable_on = (HTTPError, SSLError, RequestConnectionError)
 
     def main(self, game: Game, _additional_data: dict) -> None:
-        if not shared.schema.get_boolean("steam-metadata"):
-            return
-
         if game.blacklisted:
             return
 
