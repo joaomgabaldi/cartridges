@@ -1,29 +1,14 @@
 # sqlite.py
-#
-# Copyright 2022-2023 kramo
-# Copyright 2023 Geoffrey Coulaud
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
+import sqlite3
+import json
+import shlex
 from glob import escape
 from pathlib import Path
 from shutil import copyfile
 
 from gi.repository import GLib
 
+from cartridges import shared
 
 def copy_db(original_path: Path) -> Path:
     """
@@ -35,3 +20,62 @@ def copy_db(original_path: Path) -> Path:
         copy = tmp / file.name
         copyfile(str(file), str(copy))
     return tmp / original_path.name
+
+def get_conn() -> sqlite3.Connection:
+    """Retorna uma conexão ativa com o banco de dados principal."""
+    shared.games_dir.mkdir(parents=True, exist_ok=True)
+    db_path = shared.games_dir / "cartridges.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row  # Permite acessar colunas como dicionário
+    return conn
+
+def init_db() -> sqlite3.Connection:
+    """Cria a tabela de jogos caso não exista."""
+    conn = get_conn()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS games (
+            game_id TEXT PRIMARY KEY,
+            added INTEGER,
+            executable TEXT,
+            source TEXT,
+            hidden BOOLEAN,
+            last_played INTEGER,
+            name TEXT,
+            developer TEXT,
+            removed BOOLEAN,
+            blacklisted BOOLEAN,
+            version INTEGER
+        )
+    ''')
+    conn.commit()
+    return conn
+
+def migrate_legacy_json(conn: sqlite3.Connection) -> None:
+    """Migra silenciosamente os .json antigos para o SQLite."""
+    if not shared.games_dir.exists():
+        return
+        
+    for file in shared.games_dir.glob("*.json"):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Executáveis podiam ser listas nos JSONs mais velhos
+            executable = data.get("executable", "")
+            if isinstance(executable, list):
+                executable = shlex.join(executable)
+
+            conn.execute('''
+                INSERT OR REPLACE INTO games 
+                (game_id, added, executable, source, hidden, last_played, name, developer, removed, blacklisted, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                data.get("game_id"), data.get("added"), executable, data.get("source"),
+                data.get("hidden", False), data.get("last_played", 0), data.get("name"),
+                data.get("developer"), data.get("removed", False), data.get("blacklisted", False),
+                data.get("version", shared.SPEC_VERSION)
+            ))
+            conn.commit()
+            file.unlink() # Deleta o JSON após migrar com sucesso
+        except Exception:
+            pass
