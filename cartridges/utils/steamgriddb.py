@@ -112,7 +112,13 @@ class SgdbHelper:
 
         try:
             sgdb_ids = self.get_game_ids(game)
-        except (HTTPError, SgdbError) as error:
+        except (HTTPError, SgdbGameNotFound) as error:
+            logging.warning(
+                "%s while getting SGDB ID for %s. Skipping cover download.", type(error).__name__, game.name
+            )
+            # Retorna silenciosamente em vez de estoirar o pipeline
+            return
+        except SgdbError as error:
             logging.warning(
                 "%s while getting SGDB ID for %s", type(error).__name__, game.name
             )
@@ -135,7 +141,7 @@ class SgdbHelper:
                     return
                 except SgdbAuthError as error:
                     raise error
-                except Exception as error:  # Aqui está a magia: captura OSError, struct.error, etc.
+                except Exception as error: 
                     logging.warning(
                         "%s while processing image for %s kwargs=%s id=%s. Skipping to next...",
                         type(error).__name__,
@@ -146,4 +152,5 @@ class SgdbHelper:
                     continue
 
         logging.warning('No matching/valid image found for game "%s"', game.name)
-        raise SgdbNoImageFound()
+        # Em vez de levantar exceção por não achar imagem, retorna limpo.
+        return
