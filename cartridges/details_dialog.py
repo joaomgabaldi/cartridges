@@ -104,6 +104,7 @@ class DetailsDialog(Adw.Dialog):
         exec_filter.add_suffix("exe")
         exec_filter.add_suffix("bat")
         exec_filter.add_suffix("url")
+        exec_filter.add_suffix("lnk")
 
         exec_filters = Gio.ListStore.new(Gtk.FileFilter)
         exec_filters.append(exec_filter)
@@ -344,6 +345,11 @@ class DetailsDialog(Adw.Dialog):
                             return
             except Exception:
                 pass
+
+        if path.lower().endswith(".lnk"):
+            command = f'start "" "{path}"' if platform == "win32" else f'xdg-open "{path}"'
+            self.executable.set_text(command)
+            return
 
         self.executable.set_text(shlex.quote(path))
 
