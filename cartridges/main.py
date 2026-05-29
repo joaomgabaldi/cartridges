@@ -129,7 +129,7 @@ class CartridgesApplication(Adw.Application):
 
         shared.state_schema.bind("width", shared.win, "default-width", Gio.SettingsBindFlags.DEFAULT)
         shared.state_schema.bind("height", shared.win, "default-height", Gio.SettingsBindFlags.DEFAULT)
-        shared.state_schema.bind("is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT)
+        shared.state.bind("is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT)
 
         # 1. INICIALIZA E MIGRA O DB
         conn = init_db()
