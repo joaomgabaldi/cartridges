@@ -1,3 +1,4 @@
+# details_dialog.py
 #
 # Copyright 2022-2024 kramo
 #
@@ -5,6 +6,14 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -31,7 +40,7 @@ from cartridges.utils.save_cover import convert_cover, save_cover
 
 
 @Gtk.Template(resource_path=shared.PREFIX + "/gtk/details-dialog.ui")
-class DetailsDialog(Adw.Window):
+class DetailsDialog(Adw.Dialog):
     __gtype_name__ = "DetailsDialog"
 
     cover_overlay: Gtk.Overlay = Gtk.Template.Child()
@@ -43,8 +52,6 @@ class DetailsDialog(Adw.Window):
 
     name: Adw.EntryRow = Gtk.Template.Child()
     developer: Adw.EntryRow = Gtk.Template.Child()
-    publisher: Adw.EntryRow = Gtk.Template.Child()
-    release_year: Adw.EntryRow = Gtk.Template.Child()
     executable: Adw.EntryRow = Gtk.Template.Child()
 
     exec_info_label: Gtk.Label = Gtk.Template.Child()
@@ -60,8 +67,9 @@ class DetailsDialog(Adw.Window):
     def __init__(self, game: Optional[Game] = None, **kwargs: Any):
         super().__init__(**kwargs)
 
+        # Make it so only one dialog can be open at a time
         self.__class__.is_open = True
-        self.connect("close-request", lambda *_: self.set_is_open(False))
+        self.connect("closed", lambda *_: self.set_is_open(False))
 
         self.game: Optional[Game] = game
         self.game_cover: GameCover = GameCover({self.cover})
@@ -69,14 +77,8 @@ class DetailsDialog(Adw.Window):
         if self.game:
             self.set_title(_("Game Details"))
             self.name.set_text(self.game.name)
-            
-            if getattr(self.game, 'developer', None):
+            if self.game.developer:
                 self.developer.set_text(self.game.developer)
-            if getattr(self.game, 'publisher', None):
-                self.publisher.set_text(self.game.publisher)
-            if getattr(self.game, 'release_year', None):
-                self.release_year.set_text(str(self.game.release_year))
-                
             self.executable.set_text(self.game.executable)
             self.apply_button.set_label(_("Apply"))
 
@@ -89,10 +91,11 @@ class DetailsDialog(Adw.Window):
 
         image_filter = Gtk.FileFilter(name=_("Images"))
 
+        # .palm and .pdf are write-only
         for extension in set(Image.registered_extensions()) - {".palm", ".pdf"}:
             image_filter.add_suffix(extension[1:])
 
-        image_filter.add_suffix("svg")
+        image_filter.add_suffix("svg")  # Gdk.Texture supports .svg but PIL doesn't
 
         image_filters = Gio.ListStore.new(Gtk.FileFilter)
         image_filters.append(image_filter)
@@ -115,19 +118,26 @@ class DetailsDialog(Adw.Window):
         self.exec_file_dialog.set_filters(exec_filters)
         self.exec_file_dialog.set_default_filter(exec_filter)
 
+        # Translate this string as you would translate "file"
         file_name = _("file.txt")
+        # As in software
         exe_name = _("program")
 
         if platform == "win32":
             exe_name += ".exe"
+            # Translate this string as you would translate "path to {}"
             exe_path = _("C:\\path\\to\\{}").format(exe_name)
+            # Translate this string as you would translate "path to {}"
             file_path = _("C:\\path\\to\\{}").format(file_name)
             command = "start"
         else:
+            # Translate this string as you would translate "path to {}"
             exe_path = _("/path/to/{}").format(exe_name)
+            # Translate this string as you would translate "path to {}"
             file_path = _("/path/to/{}").format(file_name)
             command = "open" if platform == "darwin" else "xdg-open"
 
+        # pylint: disable=line-too-long
         exec_info_text = _(
             'To launch the executable "{}", use the command:\n\n<tt>"{}"</tt>\n\nTo open the file "{}" with the default application, use:\n\n<tt>{} "{}"</tt>\n\nIf the path contains spaces, make sure to wrap it in double quotes!'
         ).format(exe_name, exe_path, file_name, command, file_path)
@@ -138,7 +148,7 @@ class DetailsDialog(Adw.Window):
             (Gtk.AccessibleProperty.LABEL,),
             (
                 exec_info_text.replace("<tt>", "").replace("</tt>", ""),
-            ),
+            ),  # Remove formatting, else the screen reader reads it
         )
 
         def set_exec_info_a11y_label(*_args: Any) -> None:
@@ -153,22 +163,19 @@ class DetailsDialog(Adw.Window):
 
         self.name.connect("entry-activated", self.focus_executable)
         self.developer.connect("entry-activated", self.focus_executable)
-        self.publisher.connect("entry-activated", self.focus_executable)
-        self.release_year.connect("entry-activated", self.focus_executable)
         self.executable.connect("entry-activated", self.apply_preferences)
 
         self.set_focus(self.name)
 
     def delete_pixbuf(self, *_args: Any) -> None:
         self.game_cover.new_cover()
+
         self.cover_button_delete_revealer.set_reveal_child(False)
         self.cover_changed = True
 
     def apply_preferences(self, *_args: Any) -> None:
         final_name = self.name.get_text()
         final_developer = self.developer.get_text()
-        final_publisher = self.publisher.get_text()
-        final_release_year = self.release_year.get_text()
         final_executable = self.executable.get_text()
 
         if not self.game:
@@ -184,6 +191,7 @@ class DetailsDialog(Adw.Window):
                 )
                 return
 
+            # Increment the number after the game id (eg. imported_1, imported_2)
             source_id = "imported"
             numbers = [0]
             game_id: str
@@ -191,10 +199,7 @@ class DetailsDialog(Adw.Window):
                 prefix = "imported_"
                 if not game_id.startswith(prefix):
                     continue
-                try:
-                    numbers.append(int(game_id.replace(prefix, "", 1)))
-                except ValueError:
-                    pass
+                numbers.append(int(game_id.replace(prefix, "", 1)))
 
             game_number = max(numbers) + 1
 
@@ -232,8 +237,6 @@ class DetailsDialog(Adw.Window):
 
         self.game.name = final_name
         self.game.developer = final_developer or None
-        self.game.publisher = final_publisher or None
-        self.game.release_year = final_release_year or None
 
         cleaned_executable = final_executable.strip(' "\'')
         if platform == "win32" and cleaned_executable.lower().endswith(".lnk"):
@@ -265,6 +268,8 @@ class DetailsDialog(Adw.Window):
         self.game.save()
         self.game.update()
 
+        # TODO: this is fucked up (less than before)
+        # Get a cover from SGDB if none is present
         if not self.game_cover.get_texture():
             self.game.set_loading(1)
             sgdb_manager = shared.store.managers[SgdbManager]
@@ -277,10 +282,13 @@ class DetailsDialog(Adw.Window):
         shared.win.show_details_page(self.game)
 
     def update_cover_callback(self, manager: SgdbManager) -> None:
+        # Set the game as not loading
         self.game.set_loading(-1)
         self.game.update()
 
+        # Handle errors that occured
         for error in manager.collect_errors():
+            # On auth error, inform the user
             if isinstance(error, FriendlyError):
                 create_dialog(
                     shared.win,
