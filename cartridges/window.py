@@ -363,10 +363,10 @@ class CartridgesWindow(Adw.ApplicationWindow):
             remove_from_overlay(self.hidden_notice_empty)
             remove_from_overlay(self.hidden_notice_no_results)
 
-    def filter_func_main(self, game: Game) -> bool:
+    def filter_func_main(self, game: Game, *args: Any) -> bool:
         return self.base_filter(game, False)
 
-    def filter_func_hidden(self, game: Game) -> bool:
+    def filter_func_hidden(self, game: Game, *args: Any) -> bool:
         return self.base_filter(game, True)
 
     def base_filter(self, game: Game, hidden_view: bool) -> bool:
@@ -399,7 +399,7 @@ class CartridgesWindow(Adw.ApplicationWindow):
         GLib.idle_add(self.set_library_child)
         return not filtered
 
-    def sort_func(self, game1: Game, game2: Game) -> int:
+    def sort_func(self, game1: Game, game2: Game, *args: Any) -> int:
         var, order = "name", True
 
         if self.sort_state in ("newest", "oldest"):
