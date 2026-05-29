@@ -1,3 +1,4 @@
+# game.py
 #
 # Copyright 2022-2023 kramo
 #
@@ -6,172 +7,197 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# pyright: reportAssignmentType=none
-
+import shlex
 from pathlib import Path
-from sys import platform
+from time import time
 from typing import Any, Optional
 
-from gi.repository import Gio, GLib
+from gi.repository import Adw, GObject, Gtk
 
 from cartridges import shared
 from cartridges.game_cover import GameCover
 from cartridges.utils.run_executable import run_executable
 
 
-class Game(GLib.Object):
-    """Game object"""
+# pylint: disable=too-many-instance-attributes
+@Gtk.Template(resource_path=shared.PREFIX + "/gtk/game.ui")
+class Game(Gtk.Box):
+    __gtype_name__ = "Game"
 
-    def __init__(self, data: dict):
-        super().__init__()
-        self.game_id = data.get("game_id", "")
-        self.name = data.get("name", "")
-        self.developer = data.get("developer")
-        self.publisher = data.get("publisher")
-        self.release_year = data.get("release_year")
-        self.executable = data.get("executable", "")
-        self.added = data.get("added", 0)
-        self.source = data.get("source", "")
-        self.hidden = data.get("hidden", False)
-        self.last_played = data.get("last_played", 0)
+    title = Gtk.Template.Child()
+    play_button = Gtk.Template.Child()
+    cover = Gtk.Template.Child()
+    spinner = Gtk.Template.Child()
+    cover_button = Gtk.Template.Child()
+    menu_button = Gtk.Template.Child()
+    play_revealer = Gtk.Template.Child()
+    menu_revealer = Gtk.Template.Child()
+    game_options = Gtk.Template.Child()
+    hidden_game_options = Gtk.Template.Child()
 
-        # Only present in legacy state
-        self.steam_id = data.get("steam_id")
+    loading: int = 0
+    filtered: bool = False
 
-        self.removed = False
-        self.blacklisted = False
-        self.filtered = False
-        self.loading = 0
+    added: int
+    executable: str
+    game_id: str
+    source: str
+    hidden: bool = False
+    last_played: int = 0
+    name: str
+    developer: Optional[str] = None
+    removed: bool = False
+    blacklisted: bool = False
+    game_cover: GameCover = None
+    version: int = 0
 
-        self.game_cover: Optional[GameCover] = None
+    def __init__(self, data: dict[str, Any], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+        self.app = shared.win.get_application()
+        self.version = shared.SPEC_VERSION
+
+        self.update_values(data)
         self.base_source = self.source.split("_")[0]
 
-    def get_cover_path(self) -> Path:
-        base_path = shared.covers_dir / self.game_id
+        self.set_play_icon()
 
-        if base_path.with_suffix(".gif").is_file():
-            return base_path.with_suffix(".gif")
+        self.event_contoller_motion = Gtk.EventControllerMotion.new()
+        self.add_controller(self.event_contoller_motion)
+        self.event_contoller_motion.connect("enter", self.toggle_play, False)
+        self.event_contoller_motion.connect("leave", self.toggle_play, None, None)
+        self.cover_button.connect("clicked", self.main_button_clicked, False)
+        self.play_button.connect("clicked", self.main_button_clicked, True)
 
-        return base_path.with_suffix(".tiff")
+        shared.schema.connect("changed", self.schema_changed)
 
-    def toggle_hidden(self, save: bool = True) -> None:
-        self.hidden = not self.hidden
+    def update_values(self, data: dict[str, Any]) -> None:
+        for key, value in data.items():
+            # Convert executables to strings
+            if key == "executable" and isinstance(value, list):
+                value = shlex.join(value)
+            setattr(self, key, value)
+
+    def update(self) -> None:
+        self.emit("update-ready", {})
+
+    def save(self) -> None:
+        self.emit("save-ready", {})
+
+    def create_toast(self, title: str, action: Optional[str] = None) -> None:
+        toast = Adw.Toast.new(title.format(self.name))
+        toast.set_priority(Adw.ToastPriority.HIGH)
+        toast.set_use_markup(False)
+
+        if action:
+            toast.set_button_label(_("Undo"))
+            toast.connect("button-clicked", shared.win.on_undo_action, self, action)
+
+            if (self, action) in shared.win.toasts.keys():
+                # Dismiss the toast if there already is one
+                shared.win.toasts[(self, action)].dismiss()
+
+            shared.win.toasts[(self, action)] = toast
+
+        shared.win.toast_overlay.add_toast(toast)
+
+    def launch(self) -> None:
+        self.last_played = int(time())
+        self.save()
         self.update()
 
-        if not save:
-            return
+        run_executable(self.executable)
 
-        shared.win.library_filter.changed(2)
-        shared.win.hidden_library_filter.changed(2)
+        if shared.schema.get_boolean("exit-after-launch"):
+            self.app.quit()
 
-        shared.win.create_source_rows()
+        # The variable is the title of the game
+        self.create_toast(_("{} launched"))
 
+    def toggle_hidden(self, toast: bool = True) -> None:
+        self.hidden = not self.hidden
         self.save()
 
-        # Translators: {} is the game's title
-        string = _("{} hidden") if self.hidden else _("{} unhidden")
-
-        shared.win.get_application().send_notification(
-            "hide", Gio.Notification.new(string.format(self.name))
-        )
-
-        try:
-            shared.win.toasts[(self, "hide")].dismiss()
-            shared.win.toasts.pop((self, "hide"))
-        except KeyError:
-            pass
-
-        # Translators: {} is the game's title
-        toast = shared.win.toast_overlay.add_toast(
-            string.format(self.name),
-            "win.undo",
-            _("Undo"),
-        )
-        shared.win.toasts[(self, "hide")] = toast
-
-        # Sleep for 6 seconds before withdrawing the notification
-        GLib.Thread.new(
-            None,
-            lambda: (
-                GLib.usleep(6000000),
-                shared.win.get_application().withdraw_notification("hide"),
-            ),
-        )
-
-    def remove_game(self) -> None:
         if shared.win.navigation_view.get_visible_page() == shared.win.details_page:
             shared.win.navigation_view.pop()
 
-        self.removed = True
         self.update()
 
-        shared.win.create_source_rows()
-
-        # Delete files
-        shared.store.cleanup_game(self)
-
-        # Remove from runtime cache
-        shared.win.remove_game_from_ui(self)
-
-        shared.win.get_application().send_notification(
-            "remove",
-            # Translators: {} is the game's title
-            Gio.Notification.new(_("{} removed").format(self.name)),
-        )
-
-        try:
-            shared.win.toasts[(self, "remove")].dismiss()
-            shared.win.toasts.pop((self, "remove"))
-        except KeyError:
-            pass
-
-        # Display an undo toast if the game is manually added
-        if self.source == "imported":
-            # Translators: {} is the game's title
-            toast = shared.win.toast_overlay.add_toast(
-                _("{} removed").format(self.name),
-                "win.undo",
-                _("Undo"),
+        if toast:
+            self.create_toast(
+                # The variable is the title of the game
+                (_("{} hidden") if self.hidden else _("{} unhidden")).format(self.name),
+                "hide",
             )
-            shared.win.toasts[(self, "remove")] = toast
 
-        # Sleep for 6 seconds before withdrawing the notification
-        GLib.Thread.new(
-            None,
-            lambda: (
-                GLib.usleep(6000000),
-                shared.win.get_application().withdraw_notification("remove"),
-            ),
+    def remove_game(self) -> None:
+        # Add "removed=True" to the game properties so it can be deleted on next init
+        self.removed = True
+        self.save()
+        self.update()
+
+        if shared.win.navigation_view.get_visible_page() == shared.win.details_page:
+            shared.win.navigation_view.pop()
+
+        # The variable is the title of the game
+        self.create_toast(_("{} removed").format(self.name), "remove")
+
+    def set_loading(self, state: int) -> None:
+        self.loading += state
+        loading = self.loading > 0
+
+        self.cover.set_opacity(int(not loading))
+        self.spinner.set_visible(loading)
+
+    def get_cover_path(self) -> Optional[Path]:
+        cover_path = shared.covers_dir / f"{self.game_id}.gif"
+        if cover_path.is_file():
+            return cover_path  # type: ignore
+
+        cover_path = shared.covers_dir / f"{self.game_id}.tiff"
+        if cover_path.is_file():
+            return cover_path  # type: ignore
+
+        return None
+
+    def toggle_play(
+        self, _widget: Any, _prop1: Any, _prop2: Any, state: bool = True
+    ) -> None:
+        if not self.menu_button.get_active():
+            self.play_revealer.set_reveal_child(not state)
+            self.menu_revealer.set_reveal_child(not state)
+
+    def main_button_clicked(self, _widget: Any, button: bool) -> None:
+        if shared.schema.get_boolean("cover-launches-game") ^ button:
+            self.launch()
+        else:
+            shared.win.show_details_page(self)
+
+    def set_play_icon(self) -> None:
+        self.play_button.set_icon_name(
+            "help-about-symbolic"
+            if shared.schema.get_boolean("cover-launches-game")
+            else "media-playback-start-symbolic"
         )
 
-    def launch(self) -> None:
-        shared.win.get_application().send_notification(
-            "launch",
-            # Translators: {} is the game's title
-            Gio.Notification.new(_("{} launched").format(self.name)),
-        )
+    def schema_changed(self, _settings: Any, key: str) -> None:
+        if key == "cover-launches-game":
+            self.set_play_icon()
 
-        GLib.Thread.new(None, lambda: run_executable(self.executable))
+    @GObject.Signal(name="update-ready", arg_types=[object])
+    def update_ready(self, _additional_data):  # type: ignore
+        """Signal emitted when the game needs updating"""
 
-        # Sleep for 6 seconds before withdrawing the notification
-        GLib.Thread.new(
-            None,
-            lambda: (
-                GLib.usleep(6000000),
-                shared.win.get_application().withdraw_notification("launch"),
-            ),
-        )
-
-    def toggle_play(self, _widget: Any, _pspec: Any, action: Any) -> None:
-        pass
-
-    def save(self) -> None:
-        shared.store.save_game(self)
-
-    def update(self) -> None:
-        pass
-
-    def set_loading(self, increment: int) -> None:
-        self.loading += increment
+    @GObject.Signal(name="save-ready", arg_types=[object])
+    def save_ready(self, _additional_data):  # type: ignore
+        """Signal emitted when the game needs saving"""
