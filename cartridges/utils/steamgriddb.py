@@ -19,6 +19,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -62,13 +63,22 @@ class SgdbHelper:
         headers = {"Authorization": f"Bearer {key}"}
         return headers
 
-    def get_game_id(self, game: Game) -> Any:
-        """Get grid results for a game. Can raise an exception."""
-        uri = f"{self.base_url}search/autocomplete/{game.name}"
+    def sanitize_name(self, name: str) -> str:
+        clean = re.sub(r'[™®©]', '', name)
+        clean = re.sub(r'\(.*?\)|\[.*?\]', '', clean)
+        clean = re.sub(r'(?i)\b(?:definitive|goty|enhanced|special|director\'s cut)\s+edition\b', '', clean)
+        return clean.strip()
+
+    def get_game_ids(self, game: Game) -> list[int]:
+        clean_name = self.sanitize_name(game.name)
+        uri = f"{self.base_url}search/autocomplete/{clean_name}"
         res = requests.get(uri, headers=self.auth_headers, timeout=5)
         match res.status_code:
             case 200:
-                return res.json()["data"][0]["id"]
+                data = res.json()["data"]
+                if len(data) == 0:
+                    raise SgdbGameNotFound(res.status_code)
+                return [item["id"] for item in data[:3]]
             case 401:
                 raise SgdbAuthError(res.json()["errors"][0])
             case 404:
@@ -76,9 +86,9 @@ class SgdbHelper:
             case _:
                 res.raise_for_status()
 
-    def get_image_uri(self, game_id: str, animated: bool = False) -> Any:
-        """Get the image for a SGDB game id"""
-        uri = f"{self.base_url}grids/game/{game_id}?dimensions=600x900"
+    def get_image_uri(self, game_id: int, animated: bool = False) -> str:
+        dimensions = "600x900,342x482,660x930"
+        uri = f"{self.base_url}grids/game/{game_id}?dimensions={dimensions}"
         if animated:
             uri += "&types=animated"
         res = requests.get(uri, headers=self.auth_headers, timeout=5)
@@ -96,9 +106,6 @@ class SgdbHelper:
                 res.raise_for_status()
 
     def conditionaly_update_cover(self, game: Game) -> None:
-        """Update the game's cover if appropriate"""
-
-        # Obvious skips
         use_sgdb = shared.schema.get_boolean("sgdb")
         if not use_sgdb or game.blacklisted:
             return
@@ -108,52 +115,45 @@ class SgdbHelper:
         animated = image_trunk.with_suffix(".gif")
         prefer_sgdb = shared.schema.get_boolean("sgdb-prefer")
 
-        # Do nothing if file present and not prefer SGDB
         if not prefer_sgdb and (still.is_file() or animated.is_file()):
             return
 
-        # Get ID for the game
         try:
-            sgdb_id = self.get_game_id(game)
+            sgdb_ids = self.get_game_ids(game)
         except (HTTPError, SgdbError) as error:
             logging.warning(
                 "%s while getting SGDB ID for %s", type(error).__name__, game.name
             )
             raise error
 
-        # Build different SGDB options to try
         image_uri_kwargs_sets = [{"animated": False}]
         if shared.schema.get_boolean("sgdb-animated"):
             image_uri_kwargs_sets.insert(0, {"animated": True})
 
-        # Download covers
-        for uri_kwargs in image_uri_kwargs_sets:
-            try:
-                uri = self.get_image_uri(sgdb_id, **uri_kwargs)
-                response = requests.get(uri, timeout=5)
-                tmp_file = Gio.File.new_tmp()[0]
-                tmp_file_path = tmp_file.get_path()
-                Path(tmp_file_path).write_bytes(response.content)
-                save_cover(game.game_id, convert_cover(tmp_file_path))
-            except SgdbAuthError as error:
-                # Let caller handle auth errors
-                raise error
-            except (HTTPError, SgdbError) as error:
-                logging.warning(
-                    "%s while getting image for %s kwargs=%s",
-                    type(error).__name__,
-                    game.name,
-                    str(uri_kwargs),
-                )
-                continue
-            else:
-                # Stop as soon as one is finished
-                return
+        for sgdb_id in sgdb_ids:
+            for uri_kwargs in image_uri_kwargs_sets:
+                try:
+                    uri = self.get_image_uri(sgdb_id, **uri_kwargs)
+                    response = requests.get(uri, timeout=5)
+                    tmp_file = Gio.File.new_tmp()[0]
+                    tmp_file_path = tmp_file.get_path()
+                    Path(tmp_file_path).write_bytes(response.content)
+                    save_cover(game.game_id, convert_cover(tmp_file_path))
+                    return
+                except SgdbAuthError as error:
+                    raise error
+                except (HTTPError, SgdbError) as error:
+                    logging.warning(
+                        "%s while getting image for %s kwargs=%s id=%s",
+                        type(error).__name__,
+                        game.name,
+                        str(uri_kwargs),
+                        sgdb_id
+                    )
+                    continue
 
-        # No image was added
         logging.warning(
-            'No matching image found for game "%s" (SGDB ID %d)',
-            game.name,
-            sgdb_id,
+            'No matching image found for game "%s"',
+            game.name
         )
         raise SgdbNoImageFound()
