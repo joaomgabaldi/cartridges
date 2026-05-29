@@ -1,3 +1,4 @@
+# sqlite.py
 import sqlite3
 import json
 import shlex
@@ -21,13 +22,15 @@ def copy_db(original_path: Path) -> Path:
     return tmp / original_path.name
 
 def get_conn() -> sqlite3.Connection:
+    """Retorna uma conexão ativa com o banco de dados principal."""
     shared.games_dir.mkdir(parents=True, exist_ok=True)
     db_path = shared.games_dir / "cartridges.db"
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row  # Permite acessar colunas como dicionário
     return conn
 
 def init_db() -> sqlite3.Connection:
+    """Cria a tabela de jogos caso não exista."""
     conn = get_conn()
     conn.execute('''
         CREATE TABLE IF NOT EXISTS games (
@@ -39,24 +42,16 @@ def init_db() -> sqlite3.Connection:
             last_played INTEGER,
             name TEXT,
             developer TEXT,
-            publisher TEXT,
-            release_year TEXT,
             removed BOOLEAN,
             blacklisted BOOLEAN,
             version INTEGER
         )
     ''')
-    
-    try:
-        conn.execute('ALTER TABLE games ADD COLUMN publisher TEXT')
-        conn.execute('ALTER TABLE games ADD COLUMN release_year TEXT')
-    except sqlite3.OperationalError:
-        pass
-
     conn.commit()
     return conn
 
 def migrate_legacy_json(conn: sqlite3.Connection) -> None:
+    """Migra silenciosamente os .json antigos para o SQLite."""
     if not shared.games_dir.exists():
         return
         
@@ -65,22 +60,22 @@ def migrate_legacy_json(conn: sqlite3.Connection) -> None:
             with open(file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
+            # Executáveis podiam ser listas nos JSONs mais velhos
             executable = data.get("executable", "")
             if isinstance(executable, list):
                 executable = shlex.join(executable)
 
             conn.execute('''
                 INSERT OR REPLACE INTO games 
-                (game_id, added, executable, source, hidden, last_played, name, developer, publisher, release_year, removed, blacklisted, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (game_id, added, executable, source, hidden, last_played, name, developer, removed, blacklisted, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 data.get("game_id"), data.get("added"), executable, data.get("source"),
                 data.get("hidden", False), data.get("last_played", 0), data.get("name"),
-                data.get("developer"), data.get("publisher"), data.get("release_year"),
-                data.get("removed", False), data.get("blacklisted", False),
+                data.get("developer"), data.get("removed", False), data.get("blacklisted", False),
                 data.get("version", shared.SPEC_VERSION)
             ))
             conn.commit()
-            file.unlink()
+            file.unlink() # Deleta o JSON após migrar com sucesso
         except Exception:
             pass
