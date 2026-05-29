@@ -1,3 +1,4 @@
+# main.py
 #
 # Copyright 2022-2024 kramo
 #
@@ -129,7 +130,7 @@ class CartridgesApplication(Adw.Application):
 
         shared.state_schema.bind("width", shared.win, "default-width", Gio.SettingsBindFlags.DEFAULT)
         shared.state_schema.bind("height", shared.win, "default-height", Gio.SettingsBindFlags.DEFAULT)
-        shared.state.bind("is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT)
+        shared.state_schema.bind("is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT)
 
         # 1. INICIALIZA E MIGRA O DB
         conn = init_db()
@@ -209,6 +210,7 @@ class CartridgesApplication(Adw.Application):
                     
                     run_executable(executable)
 
+                    # Update last played
                     conn.execute("UPDATE games SET last_played = ? WHERE game_id = ?", (int(time()), game_id_str))
                     
             except Exception:
@@ -219,6 +221,7 @@ class CartridgesApplication(Adw.Application):
                 "launch", Gio.Notification.new(_("{} launched").format(name))
             )
 
+            # Sleep for 6 seconds before withdrawing the notification
             GLib.usleep(6000000)
             self.withdraw_notification("launch")
 
@@ -329,7 +332,6 @@ class CartridgesApplication(Adw.Application):
             win.set_visible_page_name(page_name)
         if expander_row:
             getattr(win, expander_row).set_expanded(True)
-            
         win.present(shared.win)
 
         return win
@@ -341,17 +343,13 @@ class CartridgesApplication(Adw.Application):
         shared.win.active_game.toggle_hidden()
 
     def on_edit_game_action(self, *_args: Any) -> None:
-        win = DetailsDialog(shared.win.active_game)
-        win.set_transient_for(shared.win)
-        win.present()
+        DetailsDialog(shared.win.active_game).present(shared.win)
 
     def on_add_game_action(self, *_args: Any) -> None:
         if DetailsDialog.is_open:
             return
 
-        win = DetailsDialog()
-        win.set_transient_for(shared.win)
-        win.present()
+        DetailsDialog().present(shared.win)
 
     def on_import_action(self, *_args: Any) -> None:
         shared.importer = Importer()
