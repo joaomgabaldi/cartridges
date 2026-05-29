@@ -19,8 +19,10 @@
 
 from json import JSONDecodeError
 
+from gi.repository import Adw, GLib
 from requests.exceptions import HTTPError, SSLError
 
+from cartridges import shared
 from cartridges.errors.friendly_error import FriendlyError
 from cartridges.game import Game
 from cartridges.store.managers.async_manager import AsyncManager
@@ -36,6 +38,15 @@ class SgdbManager(AsyncManager):
     retryable_on = (HTTPError, SSLError, ConnectionError, JSONDecodeError)
 
     def main(self, game: Game, _additional_data: dict) -> None:
+        def show_toast() -> bool:
+            if hasattr(shared, "win") and hasattr(shared.win, "add_toast"):
+                toast = Adw.Toast.new(f"A processar capa: {game.name}")
+                toast.set_timeout(2)
+                shared.win.add_toast(toast)
+            return False
+
+        GLib.idle_add(show_toast)
+
         try:
             sgdb = SgdbHelper()
             sgdb.conditionaly_update_cover(game)
