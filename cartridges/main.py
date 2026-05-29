@@ -26,6 +26,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 from cartridges.utils.sqlite import init_db, migrate_legacy_json, get_conn
 import gi
+import threading
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -115,6 +116,20 @@ class CartridgesApplication(Adw.Application):
         shared.state_schema.bind(
             "is-maximized", shared.win, "maximized", Gio.SettingsBindFlags.DEFAULT
         )
+
+        # 1. INICIALIZA E MIGRA O DB
+        conn = init_db()
+        migrate_legacy_json(conn)
+        conn.close()
+
+        # 2. MOSTRAR A JANELA IMEDIATAMENTE (Isto é o que resolve o delay visual)
+        shared.win.present()
+
+        # 3. Preparar e iniciar a leitura em background
+        shared.store.add_manager(FileManager(), False)
+        shared.store.add_manager(DisplayManager())
+        self.state = shared.AppState.LOAD_FROM_DISK
+        self.load_games_from_disk()
 
         # INICIALIZA E MIGRA O DB AQUI (ANTES DE LER OS JOGOS)
         conn = init_db()
@@ -219,20 +234,48 @@ class CartridgesApplication(Adw.Application):
         return -1
 
     def load_games_from_disk(self) -> None:
-        try:
-            with get_conn() as conn:
-                cursor = conn.execute("SELECT * FROM games")
-                for row in cursor:
-                    data = dict(row)
-                    # Força a tipagem booleana
-                    data['hidden'] = bool(data['hidden'])
-                    data['removed'] = bool(data['removed'])
-                    data['blacklisted'] = bool(data['blacklisted'])
-                    
-                    game = Game(data)
-                    shared.store.add_game(game, {"skip_save": True})
-        except Exception as e:
-            print(f"Erro ao carregar do SQLite: {e}")
+        def fetch_data() -> None:
+            """Executa fora da Thread Principal: Apenas I/O do SQLite"""
+            games_data = []
+            try:
+                with get_conn() as conn:
+                    cursor = conn.execute("SELECT * FROM games")
+                    for row in cursor:
+                        data = dict(row)
+                        data['hidden'] = bool(data['hidden'])
+                        data['removed'] = bool(data['removed'])
+                        data['blacklisted'] = bool(data['blacklisted'])
+                        games_data.append(data)
+            except Exception as e:
+                print(f"Erro ao carregar do SQLite: {e}")
+            
+            # Devolve os dados extraídos para a Thread Principal processar o UI
+            GLib.idle_add(build_ui, games_data)
+
+        def build_ui(games_data: list) -> bool:
+            """Executa na Thread Principal: Seguro para o GTK"""
+            for data in games_data:
+                game = Game(data)
+                shared.store.add_game(game, {"skip_save": True})
+
+            # As etapas finais do boot original que aguardavam a leitura do disco
+            self.state = shared.AppState.DEFAULT
+            shared.win.create_source_rows()
+
+            if getattr(self, "init_search_term", None):
+                shared.win.search_entry.set_text(self.init_search_term)
+                shared.win.search_bar.set_search_mode(True)
+                self.init_search_term = None
+
+            self.check_importers()
+            shared.store.start_managers()
+            self.download_covers()
+            
+            # GLib.SOURCE_REMOVE (False) indica para não repetir a chamada
+            return False
+
+        # Dispara a função na sub-thread
+        threading.Thread(target=fetch_data, daemon=True).start()
 
     def get_source_name(self, source_id: str) -> Any:
         if source_id == "all":
