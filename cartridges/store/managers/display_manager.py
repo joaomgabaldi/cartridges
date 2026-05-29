@@ -17,6 +17,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from gi.repository import Gtk
 from cartridges import shared
 from cartridges.game import Game
 from cartridges.game_cover import GameCover
@@ -32,11 +33,8 @@ class DisplayManager(Manager):
     signals = {"update-ready"}
 
     def main(self, game: Game, _additional_data: dict) -> None:
-        if game.get_parent():
-            game.get_parent().get_parent().remove(game)
-            if game.get_parent():
-                game.get_parent().set_child()
-
+        # 1. Removido o bloco antigo de "game.get_parent()" do FlowBox
+        
         game.menu_button.set_menu_model(
             game.hidden_game_options if game.hidden else game.game_options
         )
@@ -63,14 +61,23 @@ class DisplayManager(Manager):
         ):
             shared.win.show_details_page(game)
 
+        # 2. A nova Integração MVC
         if not game.removed and not game.blacklisted:
-            if game.hidden:
-                shared.win.hidden_library.append(game)
+            # Verifica se o jogo já está no ListStore para não duplicar em atualizações
+            is_new = True
+            for i in range(shared.win.game_store.get_n_items()):
+                if shared.win.game_store.get_item(i).game_id == game.game_id:
+                    is_new = False
+                    break
+            
+            if is_new:
+                # Se for um jogo novo sendo lido, injeta na ListStore através do Window
+                shared.win.add_game_to_ui(game)
             else:
-                shared.win.library.append(game)
-            game.get_parent().set_focusable(False)
-
-        shared.win.set_library_child()
+                # Se for só uma atualização de estado (ex: ocultou o jogo), avisa os filtros
+                shared.win.library_filter.changed(Gtk.FilterChange.DIFFERENT)
+                shared.win.hidden_library_filter.changed(Gtk.FilterChange.DIFFERENT)
+                shared.win.set_library_child()
 
         if shared.win.get_application().state == shared.AppState.DEFAULT:
             shared.win.create_source_rows()
