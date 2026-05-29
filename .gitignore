@@ -1,9 +1,0 @@
-build-aux/flatpak/page.kramo.Cartridges.json
-/subprojects/blueprint-compiler
-/build-aux/macos/build
-/build-aux/macos/dist
-/.flatpak
-/.flatpak-builder
-/.vscode
-.DS_Store
-.prettierignore
