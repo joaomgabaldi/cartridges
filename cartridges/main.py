@@ -57,6 +57,39 @@ from cartridges.store.managers.steam_api_manager import SteamAPIManager
 from cartridges.store.store import Store
 from cartridges.utils.run_executable import run_executable
 from cartridges.window import CartridgesWindow
+import sys
+import traceback
+import logging
+from pathlib import Path
+
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    # Ignora interrupções de teclado (Ctrl+C)
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
+    # Formata o rastreamento do erro completo
+    error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    
+    # 1. Tenta gravar no sistema de logs padrão da aplicação
+    logging.critical(f"CRASH FATAL:\n{error_msg}")
+    
+    # 2. Sistema de contingência (Failsafe): Grava na raiz do diretório de utilizador
+    # Isso garante que mesmo que o sistema de logs do GTK falhe ou não tenha permissão,
+    # você saberá exatamente o que causou o crash.
+    try:
+        crash_file = Path.home() / "cartridges_crash.log"
+        with open(crash_file, "w", encoding="utf-8") as f:
+            f.write("=== OCORREU UM ERRO FATAL ===\n")
+            f.write(error_msg)
+    except Exception:
+        pass
+        
+    # Executa o encerramento padrão
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+# Sobrescreve o manipulador padrão do Python
+sys.excepthook = global_exception_handler
 
 
 class CartridgesApplication(Adw.Application):
