@@ -8,14 +8,6 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
@@ -138,13 +130,14 @@ class SgdbHelper:
                     tmp_file = Gio.File.new_tmp()[0]
                     tmp_file_path = tmp_file.get_path()
                     Path(tmp_file_path).write_bytes(response.content)
+                    
                     save_cover(game.game_id, convert_cover(tmp_file_path))
                     return
                 except SgdbAuthError as error:
                     raise error
-                except (HTTPError, SgdbError) as error:
+                except Exception as error:  # Aqui está a magia: captura OSError, struct.error, etc.
                     logging.warning(
-                        "%s while getting image for %s kwargs=%s id=%s",
+                        "%s while processing image for %s kwargs=%s id=%s. Skipping to next...",
                         type(error).__name__,
                         game.name,
                         str(uri_kwargs),
@@ -152,8 +145,5 @@ class SgdbHelper:
                     )
                     continue
 
-        logging.warning(
-            'No matching image found for game "%s"',
-            game.name
-        )
+        logging.warning('No matching/valid image found for game "%s"', game.name)
         raise SgdbNoImageFound()
