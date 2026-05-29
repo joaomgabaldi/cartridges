@@ -11,19 +11,20 @@
 
 # pyright: reportAssignmentType=none
 
+import shlex
+import shutil
+import threading
+from pathlib import Path
 from sys import platform
+from time import time
 from typing import Any, Optional
+
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
 from cartridges import shared
 from cartridges.game import Game
 from cartridges.game_cover import GameCover
 from cartridges.utils.relative_date import relative_date
-from gi.repository import Adw, Gio, GLib, Gtk, Pango, GObject
-import shlex
-import shutil
-import threading
-from time import time
-from pathlib import Path
 
 
 @Gtk.Template(resource_path=shared.PREFIX + "/gtk/window.ui")
@@ -299,8 +300,12 @@ class CartridgesWindow(Adw.ApplicationWindow):
             self.library.set_max_columns(10)
             self.hidden_library.set_max_columns(10)
 
+        # Batch import action
+        import_shortcuts_action = Gio.SimpleAction.new("import_shortcuts", None)
+        import_shortcuts_action.connect("activate", self.on_import_shortcuts_action)
+        self.add_action(import_shortcuts_action)
+
     def add_game_to_ui(self, game: Game) -> None:
-        """New integration entry point for the display manager."""
         self.game_store.append(game)
         self.set_library_child()
 
@@ -575,3 +580,108 @@ class CartridgesWindow(Adw.ApplicationWindow):
 
     def on_close_action(self, *_args: Any) -> None:
         self.close()
+
+    def on_import_shortcuts_action(self, *_args: Any) -> None:
+        exec_filter = Gtk.FileFilter(name=_("Atalhos e Executáveis"))
+        exec_filter.add_mime_type("application/x-executable")
+        exec_filter.add_suffix("exe")
+        exec_filter.add_suffix("bat")
+        exec_filter.add_suffix("url")
+        exec_filter.add_suffix("lnk")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(exec_filter)
+
+        dialog = Gtk.FileDialog()
+        dialog.set_title(_("Selecione os Atalhos para Importar"))
+        dialog.set_filters(filters)
+        dialog.set_default_filter(exec_filter)
+        dialog.open_multiple(self, None, self.process_imported_shortcuts)
+
+    def process_imported_shortcuts(self, dialog: Gtk.FileDialog, result: Gio.Task) -> None:
+        try:
+            files = dialog.open_multiple_finish(result)
+        except GLib.Error:
+            return
+
+        def import_thread() -> None:
+            max_num = 0
+            try:
+                from cartridges.utils.sqlite import get_conn
+                with get_conn() as conn:
+                    cursor = conn.execute("SELECT game_id FROM games WHERE source = 'imported'")
+                    for row in cursor:
+                        gid = row["game_id"]
+                        if gid.startswith("imported_"):
+                            try:
+                                num = int(gid.replace("imported_", ""))
+                                if num > max_num:
+                                    max_num = num
+                            except ValueError:
+                                pass
+            except Exception:
+                pass
+                
+            current_num = max_num + 1
+            games_to_process = []
+
+            for i in range(files.get_n_items()):
+                file = files.get_item(i)
+                path = file.get_path()
+                if not path:
+                    continue
+                
+                path_obj = Path(path)
+                name = path_obj.stem
+                executable = path
+                game_id = f"imported_{current_num}"
+                
+                if path.lower().endswith(".url"):
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                            for line in f:
+                                if line.strip().upper().startswith("URL="):
+                                    url = line.split("=", 1)[1].strip()
+                                    executable = f'start "" "{url}"' if platform == "win32" else f'xdg-open "{url}"'
+                                    break
+                    except Exception:
+                        pass
+                        
+                elif platform == "win32" and path.lower().endswith(".lnk"):
+                    lnk_path = path_obj
+                    if lnk_path.is_file():
+                        links_dir = shared.games_dir.parent / "links"
+                        links_dir.mkdir(parents=True, exist_ok=True)
+                        internal_lnk = links_dir / f"{game_id}.lnk"
+                        
+                        shutil.copy2(lnk_path, internal_lnk)
+                        executable = f'start "" "{internal_lnk}"'
+                else:
+                    executable = shlex.quote(path)
+
+                current_num += 1
+
+                game = Game({
+                    "game_id": game_id,
+                    "hidden": False,
+                    "source": "imported",
+                    "added": int(time()),
+                    "name": name,
+                    "executable": executable
+                })
+                games_to_process.append(game)
+
+            GLib.idle_add(dispatch_pipeline, games_to_process)
+
+        def dispatch_pipeline(games: list) -> bool:
+            if hasattr(self.toast_overlay, "add_toast"):
+                toast = Adw.Toast.new(_("A processar e importar {} atalhos...").format(len(games)))
+                toast.set_timeout(3)
+                self.toast_overlay.add_toast(toast)
+
+            for game in games:
+                shared.store.add_game(game, {}, run_pipeline=True)
+                
+            return False
+
+        threading.Thread(target=import_thread, daemon=True).start()
