@@ -1,17 +1,21 @@
 using Gtk 4.0;
 using Adw 1;
 
-template $DetailsDialog: Adw.Dialog {
-  content-width: 480;
+template $DetailsDialog: Adw.Window {
+  title: _("Game Details");
+  modal: true;
+  hide-on-close: true;
+  width-request: 450;
+  height-request: 500;
 
-  Adw.ToolbarView {
+  content: Adw.ToolbarView {
     [top]
-    Adw.HeaderBar HeaderBar {
+    Adw.HeaderBar {
       show-start-title-buttons: false;
       show-end-title-buttons: false;
 
       [start]
-      Button cancel_button {
+      Button {
         label: _("Cancel");
         action-name: "window.close";
       }
@@ -19,127 +23,126 @@ template $DetailsDialog: Adw.Dialog {
       [end]
       Button apply_button {
         styles [
-          "suggested-action"
+          "suggested-action",
         ]
       }
     }
 
-    Adw.PreferencesPage {
-      Adw.PreferencesGroup cover_group {
-        Adw.Clamp cover_clamp {
-          maximum-size: 200;
+    ScrolledWindow {
+      Adw.Clamp {
+        maximum-size: 400;
 
-          Overlay {
-            [overlay]
-            Adw.Spinner spinner {
-              visible: false;
-            }
+        Box {
+          orientation: vertical;
+          margin-top: 24;
+          margin-bottom: 24;
+          margin-start: 12;
+          margin-end: 12;
+
+          Adw.Clamp {
+            maximum-size: 200;
 
             Overlay cover_overlay {
-              halign: center;
-              valign: center;
-
               [overlay]
-              Button cover_button_edit {
-                icon-name: "document-edit-symbolic";
-                tooltip-text: _("New Cover");
-                halign: end;
-                valign: end;
-                margin-bottom: 6;
-                margin-end: 6;
-
-                styles [
-                  "circular",
-                  "osd"
-                ]
-              }
-
-              [overlay]
-              Revealer cover_button_delete_revealer {
-                transition-type: crossfade;
-                margin-end: 40;
-
-                Button cover_button_delete {
-                  icon-name: "user-trash-symbolic";
-                  tooltip-text: _("Delete Cover");
-                  halign: end;
-                  valign: end;
-                  margin-bottom: 6;
-                  margin-end: 6;
-
-                  styles [
-                    "circular",
-                    "osd"
-                  ]
-                }
+              Adw.Spinner spinner {
+                visible: false;
               }
 
               Picture cover {
+                halign: end;
+                valign: start;
                 width-request: 200;
                 height-request: 300;
+                margin-bottom: 24;
 
                 styles [
-                  "card"
+                  "card",
                 ]
+              }
+
+              [overlay]
+              Box {
+                halign: center;
+                valign: center;
+
+                Button cover_button_edit {
+                  icon-name: "document-edit-symbolic";
+
+                  styles [
+                    "circular",
+                    "osd",
+                  ]
+                }
+
+                Revealer cover_button_delete_revealer {
+                  transition-type: slide_left;
+
+                  Button cover_button_delete {
+                    icon-name: "user-trash-symbolic";
+                    margin-start: 12;
+
+                    styles [
+                      "circular",
+                      "osd",
+                    ]
+                  }
+                }
               }
             }
           }
-        }
-      }
 
-      Adw.PreferencesGroup {
-        Adw.EntryRow name {
-          title: _("Title");
-        }
+          Adw.PreferencesGroup {
+            Adw.EntryRow name {
+              title: _("Title");
+            }
 
-        Adw.EntryRow developer {
-          title: _("Developer (optional)");
-        }
-      }
+            Adw.EntryRow developer {
+              title: _("Developer");
+            }
 
-      Adw.PreferencesGroup {
-        Adw.EntryRow executable {
-          title: _("Executable");
+            Adw.EntryRow publisher {
+              title: _("Publisher");
+            }
 
-          [suffix]
-          Button file_chooser_button {
-            valign: center;
-            icon-name: "document-open-symbolic";
-            tooltip-text: _("Select File");
+            Adw.EntryRow release_year {
+              title: _("Release Year");
+            }
 
-            styles [
-              "flat",
-            ]
-          }
+            Adw.EntryRow executable {
+              title: _("Executable");
 
-          [suffix]
-          MenuButton exec_info_button {
-            valign: center;
-            icon-name: "help-about-symbolic";
-            tooltip-text: _("More Info");
-
-            popover: Popover exec_info_popover {
-              focusable: true;
-
-              Label exec_info_label {
-                use-markup: true;
-                wrap: true;
-                max-width-chars: 50;
-                halign: center;
+              [suffix]
+              MenuButton {
                 valign: center;
-                margin-top: 6;
-                margin-bottom: 6;
-                margin-start: 6;
-                margin-end: 6;
-              }
-            };
+                icon-name: "dialog-information-symbolic";
 
-            styles [
-              "flat"
-            ]
+                popover: Popover exec_info_popover {
+                  Label exec_info_label {
+                    wrap: true;
+                    max-width-chars: 32;
+                    use-markup: true;
+                  }
+                };
+
+                styles [
+                  "flat",
+                ]
+              }
+
+              [suffix]
+              Button file_chooser_button {
+                valign: center;
+                icon-name: "folder-open-symbolic";
+                tooltip-text: _("Choose Executable");
+
+                styles [
+                  "flat",
+                ]
+              }
+            }
           }
         }
       }
     }
-  }
+  };
 }
