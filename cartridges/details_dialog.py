@@ -101,6 +101,9 @@ class DetailsDialog(Adw.Dialog):
 
         exec_filter = Gtk.FileFilter(name=_("Executables"))
         exec_filter.add_mime_type("application/x-executable")
+        exec_filter.add_suffix("exe")
+        exec_filter.add_suffix("bat")
+        exec_filter.add_suffix("url")
 
         exec_filters = Gio.ListStore.new(Gtk.FileFilter)
         exec_filters.append(exec_filter)
@@ -329,6 +332,18 @@ class DetailsDialog(Adw.Dialog):
             path = self.exec_file_dialog.open_finish(result).get_path()
         except GLib.Error:
             return
+
+        if path.lower().endswith(".url"):
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        if line.strip().upper().startswith("URL="):
+                            url = line.split("=", 1)[1].strip()
+                            command = f'start "" "{url}"' if platform == "win32" else f'xdg-open "{url}"'
+                            self.executable.set_text(command)
+                            return
+            except Exception:
+                pass
 
         self.executable.set_text(shlex.quote(path))
 
